@@ -1,0 +1,175 @@
+---
+title: "NYCFerryRidership"
+author: "Chengen Gu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+install.packages(tidyverse)
+install.packages(fs)
+install.packages(RColorBrewer)
+library(tidyverse)
+library(fs)
+library(RColorBrewer)
+```
+
+```{r}
+# import NYC Ferry Data from NYC Open Data; this dataset includes nyc ferry ridership from 07/01/2017 to 06/30/2023.
+# read API
+ferry_ridership <- read.csv("NYC_Ferry_Ridership.csv")
+```
+
+```{r}
+# Aggregate systemwide ridership during AM and PM rush hours for every weekday; 
+# AM rush hours: before 6-10 am; PM rush hours: 4-7 pm as defined in NYCEDC NYC Ferry 2022 Survey
+AMrush_ferry_ridership <- ferry_ridership %>% 
+  filter(TypeDay == "Weekday")  %>% 
+  filter(Hour >= 6 & Hour < 10) %>%
+  aggregate(Boardings ~ Date, sum)
+PMrush_ferry_ridership <- ferry_ridership %>% 
+  filter(TypeDay == "Weekday")  %>% 
+  filter(Hour >= 16 & Hour < 19) %>%
+  aggregate(Boardings ~ Date, sum)
+```
+
+```{r}
+# Calculate the average hourly systemwide ridership during AM and PM rush hours for every weekday (because AM rush hours are more than 4 hours while PM are only 3 hours)
+AM_hrly <- AMrush_ferry_ridership %>%
+  group_by(Date) %>%
+  summarise(
+    AMrush_hrly_ridership = Boardings/4
+  )
+
+PM_hrly <- PMrush_ferry_ridership %>%
+  group_by(Date) %>%
+  summarise(
+    PMrush_hrly_ridership = Boardings/3
+  )
+
+# Join AM_hrly and PM_hrly together into one dataframe
+Rushhour_ridership <- left_join(AM_hrly, PM_hrly, by = "Date")
+Rushhour_ridership$Date <- as.Date(Rushhour_ridership$Date, format = "%m/%d/%Y")
+Rushhour_ridership <- Rushhour_ridership %>%
+  pivot_longer(
+    cols = c(AMrush_hrly_ridership, PMrush_hrly_ridership),
+    names_to = "period",
+    values_to = "hrly_ridership"
+  ) %>%
+  mutate(period = ifelse(period == "AMrush_hrly_ridership", "Morning Peak", "Evening Peak")) %>%
+  arrange(Date)
+```
+
+```{r}
+# Overall Trend
+# Add a vertical line at the date when COVID-19 first hit New York (2020/02/29)
+covid_date <- as.Date("2020-02-29", format = "%Y-%m-%d")
+
+# Draw two line plots showing the variation of average hourly ridership during AM and PM rush hours over time
+Rushhour_ridership %>%
+  ggplot(aes(x = Date, y = hrly_ridership, color = period)) +
+  geom_smooth() +
+  #geom_line(size = 0.1)+
+  geom_vline(xintercept = covid_date, linetype = "dashed", color = "black", size = 0.25) +
+  labs(title = "Change in Peak-hour Ridership of NYC Ferry 2017-2023", y = "Hourly Ridership", x = "Day") +
+  theme_classic() +
+  theme(legend.position = "bottom") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+```
+
+```{r}
+# Individual Route Trends
+# Filter 6-10am and 4-7pm of every weekday from raw dataset; get rid of the Lower East Side route (abandoned) and Governers Island route (seasonal weekend special); label 6-10am and 4-7pm as morning peak and evening peak accordingly; change Date to date format, and arrange date ascendingly
+route_ridership <- ferry_ridership %>% 
+  filter(Route != "LE" & Route != "GI") %>%
+  filter(TypeDay == "Weekday")  %>% 
+  filter((Hour >= 6 & Hour < 10) | (Hour >= 16 & Hour < 19)) %>%
+  mutate(
+    rush_hour = ifelse(Hour < 10, "Morning Peak", "Evening Peak")
+  ) %>%
+  aggregate(Boardings ~ Date + rush_hour + Route, sum)
+route_ridership$Date <- as.Date(route_ridership$Date, format = "%m/%d/%Y")
+route_ridership <- route_ridership %>%
+  arrange(Date)
+```
+```{r}
+# Draw a trend line plot showing the trend of ridership during AM rush hours over time of each individual NYC Ferry Route
+route_ridership %>%
+  filter(rush_hour == "Morning Peak") %>% 
+  ggplot(aes(x = Date, y = Boardings, color = Route)) +
+  geom_smooth(method = 'gam') +
+  #geom_bar()+
+  geom_vline(xintercept = covid_date, linetype = "dashed", color = "black", size = 0.25) +
+  labs(title = "Change in Morning-peak Ridership of NYC Ferry 2017-2023, by Route", y = "Ridership", x = "Day") +
+  ylim(0, 3000) +
+  theme_classic() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_color_brewer(palette = "Set2")
+
+# Draw a trend line plot showing the trend of ridership during PM rush hours over time of each individual NYC Ferry Route
+route_ridership %>%
+  filter(rush_hour == "Evening Peak") %>% 
+  ggplot(aes(x = Date, y = Boardings, color = Route)) +
+  geom_smooth(method = 'gam') +
+  #geom_line(size = 0.1)+
+  geom_vline(xintercept = covid_date, linetype = "dashed", color = "black", size = 0.25) +
+  labs(title = "Change in Evening-peak Ridership of NYC Ferry 2017-2023, by Route", y = "Ridership", x = "Day") +
+  ylim(0, 3000) +
+  theme_classic() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_color_brewer(palette = "Set2")
+```
+
+```{r}
+# Directional Patterns
+# Filter 6-10am and 4-7pm of every weekday between 2022-07-01 and 2023-06-30 from raw dataset; get rid of the Lower East Side route (abandoned) and Governers Island route (seasonal weekend special); label 6-10am and 4-7pm as morning peak and evening peak accordingly; change Date to date format
+direction_ridership <- ferry_ridership %>% 
+  filter(Route != "LE" & Route != "GI") %>%
+  filter(TypeDay == "Weekday") %>% 
+  filter((Hour >= 6 & Hour < 10) | (Hour >= 16 & Hour < 19)) %>%
+  mutate(
+    rush_hour = ifelse(Hour < 10, "Morning Peak", "Evening Peak")
+  ) %>%
+  aggregate(Boardings ~ Date + rush_hour + Route + Direction, sum)
+direction_ridership$Date <- as.Date(direction_ridership$Date, format = "%m/%d/%Y")
+direction_ridership <- direction_ridership %>%
+  arrange(Date) %>% 
+  filter(Date >= "2022-07-01" & Date <= "2023-06-30") %>%
+  aggregate(Boardings ~ rush_hour + Route + Direction, sum)
+colnames(direction_ridership) <- c("Period", "Route", "Direction", "Boardings")
+```
+
+```{r}
+# Create a stacked-bar plot summarizing NYC Ferry morning peak ridership direction share by route, 07/2022-06/2023
+direction_ridership %>%
+  filter(Period == "Morning Peak") %>%
+  ggplot(aes(x = Route, y = Boardings/1000, fill = Direction)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  labs(title = "NYC Ferry Morning Peak Ridership Direction Share by Route, 07/2022-06/2023",
+       y = "Aggregate Ridership (in Thousand)", x = "Route") +
+  theme_classic() +
+  theme(legend.position = "bottom") +
+  scale_fill_brewer(palette = "Set1")
+
+# Create a stacked-bar plot summarizing NYC Ferry evening peak ridership direction share by route, 07/2022-06/2023
+direction_ridership %>%
+  filter(Period == "Evening Peak") %>%
+  ggplot(aes(x = Route, y = Boardings/1000, fill = Direction)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  labs(title = "NYC Ferry Evening Peak Ridership Direction Share by Route, 07/2022-06/2023",
+       y = "Aggregate Ridership (in Thousand)", x = "Route") +
+  theme_classic() +
+  theme(legend.position = "bottom") +
+  scale_fill_brewer(palette = "Set1")
+```
+
