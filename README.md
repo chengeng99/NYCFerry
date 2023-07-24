@@ -9,7 +9,7 @@ RColorBrewer installed before running other commands
 
 3. Download and Import Data: Download the NYC Ferry Ridership dataset from NYC Open Data
 and save it as "NYC_Ferry_Ridership.csv" in your R project. Then, run the code to import the
-dataset into R
+dataset into R; dataset link here: https://data.cityofnewyork.us/Transportation/NYC-Ferry-Ridership/t5n6-gx8c/data
 
 4. Prepare Data for Analysis: The dataset contains information for weekdays and weekends.
 As the research focuses on weekday peak hours, filter out weekends from the dataset
